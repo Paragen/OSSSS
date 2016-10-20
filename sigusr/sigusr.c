@@ -26,6 +26,11 @@ int main(int argc,char* argv[]) {
 	while (t) {
 		t = sleep(t);
 	}
+	memset(&sa,0,sizeof(sa));
+	sigemptyset(&ss);
+	sa.sa_mask = ss;	
+	sigaction(SIGUSR1,&sa,NULL);
+	sigaction(SIGUSR2,&sa,NULL);
 	printf("No signals were caught");
 	return 0;
 }

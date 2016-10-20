@@ -124,7 +124,7 @@ int makeDaemon() {
         return -1;
     }
 
-    if ((fd = open("/var/run/rshd.pid",O_RDWR)) > 0) {\
+    if ((fd = open("/var/run/rshd.pid",O_RDWR)) > 0) {
         dprintf(fd,"%d",(int)getpid());
         close(fd);
     }
@@ -144,7 +144,14 @@ struct dInfo {
     }
 };
 
+void printErr(dInfo* info) {
+        FILE* fl = fopen("/home/ouroboros/rshd_logs.txt","a");
+        fprintf(fl,"YO: %s\n - %d \n",strerror(errno),info->fd);
+        fclose(fl);
+}
+
 int epollAdd(int efd, dInfo* ptr) {
+    printErr(ptr);
     epoll_event ev;
     ev.data.ptr = (void*) ptr;
     ev.events = EPOLLIN;
@@ -173,16 +180,21 @@ void killThemAll() {
     }
 }
 
+
 void removeClient(dInfo* info,int efd) {
+
     kill(pidMap[info->fd],SIGTERM);
     pidMap.erase(info->fd);
     pidMap.erase(info->neighbor->fd);
     epoll_ctl(efd,EPOLL_CTL_DEL,info->fd,nullptr);
     epoll_ctl(efd,EPOLL_CTL_DEL,info->neighbor->fd,nullptr);
+
+
     close(info->fd);
     close(info->neighbor->fd);
     delete info->neighbor;
     delete info;
+
 }
 
 void writeAll(dInfo* info,int efd) {
@@ -195,6 +207,7 @@ void writeAll(dInfo* info,int efd) {
                 break;
             }
             //disconnect
+            //printErr();
             removeClient(info,efd);
             return;
         }
@@ -222,6 +235,7 @@ void readAll(dInfo* info, int efd) {
             }
             //disconnect
             removeClient(info,efd);
+            return;
         }
         info->size += val;
     }
@@ -300,7 +314,7 @@ int main(int argc, char** args) {
 
 
     while (true) { // main loop
-        if ((count = epoll_wait(efd,eList,eListSize,-1)) < 0) {
+        if ((count = epoll_wait(efd,eList,pidMap.size() + 1,-1)) < 0) {
             if (errno == EINTR) {
                 continue;
             }
@@ -366,6 +380,7 @@ int main(int argc, char** args) {
                 writeAll((dInfo*)(curr->data.ptr),efd);
             }
             if (curr->events&EPOLLERR || curr->events&EPOLLHUP) {
+                printErr((dInfo*)curr->data.ptr);
                 removeClient((dInfo*)curr->data.ptr,efd);
             }
         }

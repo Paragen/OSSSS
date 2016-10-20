@@ -1,129 +1,91 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <stdlib.h>
-#include <string.h>
+#include <string>
 #include <signal.h>
+#include <vector>
 #include <sys/types.h>
 #include <stdio.h>
+#include <string.h>
 
 
-int BUFF_SIZE = 4096;
+using namespace std;
+
+const int BUFF_SIZE(4096);
 pid_t *pid_list,child_pid;
 size_t pl_size;
 
 void my_handler(int sig) {
-	if (child_pid != 0) {
-		for (int i = 0; i < pl_size; ++i) {
+    if (child_pid != 0) {
+        for (int i = 0; i < pl_size; ++i) {
             kill(pid_list[i],SIGINT);
         }
-	}
-
-}
-
-
-struct ProgramData {
-    char** __data;
-    int data_size;
-};
-
-
-
-void write_all(char *buf, int sz) {
-    int shift = 0;
-    while (sz != shift) {
-        shift +=  write(STDOUT_FILENO, buf + shift, sz - shift);
     }
+
 }
+
+
+
+
 int read_all(char *buf, int sz) {
     int size = 0, inc;
     while (size < sz - 1 ) {
-        size += inc = read(STDIN_FILENO, buf + size, 64);
-        if (size == 0 || buf[size - 1] == '\n') {
+        inc = read(STDIN_FILENO, buf + size, sz - size - 1);
+
+        if (inc <= 0 ) {
             break;
         }
-    };
-    buf[size] = '\0';
-	return size;
+        size += inc;
+        buf[size] = '\0';
+
+        if (strchr(&(buf[size - inc]),'\n') != NULL) {
+            break;
+        }
+    }
+    return size;
 }
 
 
-struct ProgramData* create_ProgramData(char* s, int sz) {
-        struct ProgramData* curr = (struct ProgramData*) malloc(sizeof(struct ProgramData));
-        int pos = 0,count = 1;
-        while (pos + 1 < sz) {
-            if (s[pos] == ' ' && s[pos + 1] != ' ') {
-                ++count;
+vector<vector<string>> data_list;
+char toReadBuffer[BUFF_SIZE];
+string sBuf;
+
+void  parse() {
+    int  pos, save = 0;
+    while ((pos = sBuf.find('\n')) == string::npos) {
+        read_all(toReadBuffer,BUFF_SIZE);
+        sBuf += string(toReadBuffer);
+    }
+    string curr = sBuf.substr(0,pos+1);
+    sBuf = sBuf.substr(pos+1);
+    data_list.clear();
+    string s;
+    while ((pos = curr.find('\n',save)) != string::npos) {
+
+
+        data_list.push_back(vector<string>());
+        int prev = save,next;
+        while (1) {
+            while (curr[prev] == ' ') {
+                ++prev;
             }
-            ++pos;
-        }
-        pos = 0;
-        curr->__data = (char**) malloc((count + 1) * sizeof(char*));
-        int i = 0;
-        while (i < count) {
-
-            while(pos < sz && s[pos] == ' ' ) {
-                ++pos;
-            } 
-            int tmp = pos;
-            while(pos < sz && s[pos] != ' ') {
-                ++pos;
+            next = prev;
+            while (curr[next] != ' ' && curr[next] != '|' && curr[next] != '\n') {
+                ++next;
             }
-            char* buf;
-            curr->__data[i] = buf = (char*) malloc((pos - tmp + 1) * sizeof(char));
-            strncpy(curr->__data[i],s + tmp,pos - tmp);
-            buf[pos - tmp] = '\0';
-            ++i;   
+            string tmps = curr.substr(prev,next - prev);
+            data_list.back().push_back(tmps);
+            if (curr[next] == '|' || curr[next] == '\n') {
+                break;
+            }
+            prev = next;
         }
-        curr->data_size = count;
-        curr->__data[count] = NULL;
-        return curr;
+        save = next + 1;
     }
-
-void free_ProgramData(struct ProgramData *ptr) {
-    for (int i = 0; i < ptr->data_size; ++i) {
-        free(ptr->__data[i]);
-    }
-    free(ptr->__data);
-    free(ptr);
-}
-
-struct ProgramData** data_list;
-
-int parse() {
-    char* buf = (char*) malloc(BUFF_SIZE * sizeof(char)), *ptr,*prev_ptr;
-    int sz = read_all(buf,BUFF_SIZE-1),count = 1;
-
-    if (sz == 0) {
-        exit(0);
-    }
-
-    prev_ptr = buf;
-    while ((ptr = strchr(prev_ptr + 1,'|')) != NULL) {
-        prev_ptr = ptr;
-        ++count;
-    }
-    data_list = (struct ProgramData**) malloc(count * sizeof(struct ProgramData*));
-    prev_ptr = buf;
-    for (int i = 0; i < count; ++i)
-    {
-        while (*prev_ptr == ' ') {
-            prev_ptr = prev_ptr + 1;
-        }
-        ptr = strchr(prev_ptr,'|');
-        if (ptr == NULL) {
-            ptr = buf + sz - 1; 
-        }
-        data_list[i] = create_ProgramData(prev_ptr, ptr - prev_ptr);
-        prev_ptr = ptr + 1;
-    }
-    free(buf);
-    return count;
 
 }
 
 int main() {
-    char *inv = "\n$";
-
     struct sigaction sa;
     sa.sa_handler = my_handler;
     sigset_t ss;
@@ -137,32 +99,47 @@ int main() {
 
     while (1) {
 
-        write_all(inv, 2);
+        printf("\n$");
 
-        int val = parse();
-        pid_list = (pid_t*) malloc(val * sizeof(pid_t));
+        parse();
+        pid_list = (pid_t*) malloc(data_list.size() * sizeof(pid_t));
+
+
         pl_size = 0;
         fdin = dup(STDIN_FILENO);
+        int tsize = data_list.size();
 
-        for (int i = 0, border = val; i < border; ++i) {
-           if (i + 1 == border) {
-                fdout = dup(STDOUT_FILENO); 
-           } else {
+        char *** exArgs =(char***) new char[tsize];
+
+        for (int i =0; i < data_list.size(); ++i) {
+            exArgs[i] =(char**) new char[data_list[i].size() + 1];
+
+            for (int j = 0; j < data_list[i].size(); ++j) {
+                auto t1 = data_list[i][j];
+                exArgs[i][j] = new char[t1.size() + 1];
+                strcpy(exArgs[i][j],t1.c_str());
+            }
+        }
+        for (int i = 0; i < data_list.size(); ++i) {
+
+
+            if (i + 1 == data_list.size()) {
+                fdout = dup(STDOUT_FILENO);
+            } else {
                 pipe(pipefd);
                 fdout = pipefd[1];
-           }
+            }
 
-           child_pid = fork();
+            child_pid = fork();
 
-           if (child_pid == 0){ 
+            if (child_pid == 0){
 
                 dup2(fdin,STDIN_FILENO);
                 dup2(fdout,STDOUT_FILENO);
 
                 close(fdin);
                 close(fdout);
-
-                execvp(data_list[i]->__data[0], data_list[i]->__data);
+                execvp(exArgs[i][0], exArgs[i]);
                 _exit(1);
             }
 
@@ -174,14 +151,16 @@ int main() {
             fdin = pipefd[0];
         }
 
-        for (int i = 0; i < val; ++i) {
+        for (int i = 0; i < data_list.size(); ++i) {
             if (waitpid(pid_list[i],NULL,0) < 0) {
                 perror(">>>");
             }
-            free_ProgramData(data_list[i]);
+            
+            free(exArgs[i]);
         }
+        free(exArgs);
         free(pid_list);
-        free(data_list);
     }
     return 0;
 }
+
