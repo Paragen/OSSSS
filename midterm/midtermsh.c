@@ -7,8 +7,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <string.h>
-
-
+#include <iostream>
 using namespace std;
 
 const int BUFF_SIZE(4096);
@@ -42,6 +41,9 @@ int read_all(char *buf, int sz) {
             break;
         }
     }
+    if (size == 0) {
+        exit(0);
+    }
     return size;
 }
 
@@ -59,6 +61,7 @@ void  parse() {
     string curr = sBuf.substr(0,pos+1);
     sBuf = sBuf.substr(pos+1);
     data_list.clear();
+   
     string s;
     while ((pos = curr.find('\n',save)) != string::npos) {
 
@@ -74,7 +77,9 @@ void  parse() {
                 ++next;
             }
             string tmps = curr.substr(prev,next - prev);
+if (tmps.length() != 0) {
             data_list.back().push_back(tmps);
+}
             if (curr[next] == '|' || curr[next] == '\n') {
                 break;
             }
@@ -119,6 +124,7 @@ int main() {
                 exArgs[i][j] = new char[t1.size() + 1];
                 strcpy(exArgs[i][j],t1.c_str());
             }
+	    exArgs[i][data_list[i].size()] = NULL;
         }
         for (int i = 0; i < data_list.size(); ++i) {
 
