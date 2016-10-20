@@ -124,7 +124,7 @@ int makeDaemon() {
         return -1;
     }
 
-    if ((fd = open("/var/run/rshd.pid",O_RDWR)) > 0) {
+    if ((fd = open("/var/run/rshd.pid",O_RDWR)) > 0) {\
         dprintf(fd,"%d",(int)getpid());
         close(fd);
     }
@@ -144,14 +144,7 @@ struct dInfo {
     }
 };
 
-void printErr(dInfo* info) {
-        FILE* fl = fopen("/home/ouroboros/rshd_logs.txt","a");
-        fprintf(fl,"YO: %s\n - %d \n",strerror(errno),info->fd);
-        fclose(fl);
-}
-
 int epollAdd(int efd, dInfo* ptr) {
-    printErr(ptr);
     epoll_event ev;
     ev.data.ptr = (void*) ptr;
     ev.events = EPOLLIN;
@@ -180,21 +173,16 @@ void killThemAll() {
     }
 }
 
-
 void removeClient(dInfo* info,int efd) {
-
     kill(pidMap[info->fd],SIGTERM);
     pidMap.erase(info->fd);
     pidMap.erase(info->neighbor->fd);
     epoll_ctl(efd,EPOLL_CTL_DEL,info->fd,nullptr);
     epoll_ctl(efd,EPOLL_CTL_DEL,info->neighbor->fd,nullptr);
-
-
     close(info->fd);
     close(info->neighbor->fd);
     delete info->neighbor;
     delete info;
-
 }
 
 void writeAll(dInfo* info,int efd) {
@@ -207,7 +195,6 @@ void writeAll(dInfo* info,int efd) {
                 break;
             }
             //disconnect
-            //printErr();
             removeClient(info,efd);
             return;
         }
@@ -218,6 +205,14 @@ void writeAll(dInfo* info,int efd) {
     if (neighbor->size == 0 && save > 0 ) {
         epoll_event ev;
         ev.events = EPOLLIN;
+        ev.data.ptr = info;
+        if (epoll_ctl(efd,EPOLL_CTL_MOD,info->fd,&ev) < 0) {
+            removeClient(info,efd);
+        }
+    }
+    if (neighbor->size < BUFF_SIZE  && save == BUFF_SIZE ) {
+        epoll_event ev;
+        ev.events = EPOLLIN|EPOLLOUT;
         ev.data.ptr = info;
         if (epoll_ctl(efd,EPOLL_CTL_MOD,info->fd,&ev) < 0) {
             removeClient(info,efd);
@@ -235,7 +230,6 @@ void readAll(dInfo* info, int efd) {
             }
             //disconnect
             removeClient(info,efd);
-            return;
         }
         info->size += val;
     }
@@ -244,6 +238,14 @@ void readAll(dInfo* info, int efd) {
         ev.events = EPOLLIN|EPOLLOUT;
         ev.data.ptr = info->neighbor;
         if (epoll_ctl(efd,EPOLL_CTL_MOD,info->neighbor->fd,&ev) < 0) {
+            removeClient(info,efd);
+        }
+    }
+    if (save < BUFF_SIZE && info->size == BUFF_SIZE) {
+        epoll_event ev;
+        ev.events = EPOLLOUT;
+        ev.data.ptr = info->neighbor;
+        if (epoll_ctl(efd,EPOLL_CTL_MOD,info->fd,&ev) < 0) {
             removeClient(info,efd);
         }
     }
@@ -380,10 +382,8 @@ int main(int argc, char** args) {
                 writeAll((dInfo*)(curr->data.ptr),efd);
             }
             if (curr->events&EPOLLERR || curr->events&EPOLLHUP) {
-                printErr((dInfo*)curr->data.ptr);
                 removeClient((dInfo*)curr->data.ptr,efd);
             }
         }
     }
 }
-
