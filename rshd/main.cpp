@@ -10,8 +10,8 @@
 #include <map>
 #include <set>
 #include <signal.h>
+#include <string>
 #include <string.h>
-
 
 #define MAX_SERV 100
 #define BUFF_SIZE 4096
@@ -83,7 +83,7 @@ pid_t addClientPT(int fd) {
     //error
     case -1 :
         _exit(EXIT_FAILURE);
-    //child
+        //child
     case 0 :
         execlp("/bin/sh","/bin/sh",(char*)NULL); // run shell
         _exit(EXIT_SUCCESS);
@@ -150,7 +150,6 @@ int epollAdd(int efd, dInfo* ptr) {
     ptr->flags = ev.events = EPOLLIN;
 
     if (epoll_ctl(efd,EPOLL_CTL_ADD,ptr->fd,&ev) < 0) {
-        perror(">>>");
         if (ptr != nullptr) {
             delete ptr;
         }
@@ -173,7 +172,14 @@ void killThemAll() {
     }
 }
 
+void printLog(string message) {
+    FILE* f = fopen("/home/ouroboros/rshdlogs.txt","a");
+    fprintf(f,"%s\n",message.c_str());
+    fclose(f);
+}
+
 void removeClient(dInfo* info,int efd) {
+    printLog("Drop with fd:" + std::to_string(info->fd));
     kill(pidMap[info->fd],SIGTERM);
     pidMap.erase(info->fd);
     pidMap.erase(info->neighbor->fd);
@@ -195,7 +201,7 @@ void writeAll(dInfo* info,int efd) {
                 break;
             }
             //disconnect
-            //removeClient(info,efd);
+            removeClient(info,efd);
             return;
         }
         total += val;
@@ -204,9 +210,9 @@ void writeAll(dInfo* info,int efd) {
     neighbor->size -= total;
     if (neighbor->size == 0 && save > 0 ) {
         epoll_event ev;
-unsigned tmp = ~EPOLLOUT;
+        unsigned tmp = ~EPOLLOUT;
         ev.events = info->flags & tmp;
-info->flags = ev.events;
+        info->flags = ev.events;
         ev.data.ptr = info;
         if (epoll_ctl(efd,EPOLL_CTL_MOD,info->fd,&ev) < 0) {
             removeClient(info,efd);
@@ -231,14 +237,15 @@ void readAll(dInfo* info, int efd) {
                 break;
             }
             //disconnect
-            //removeClient(info,efd);
+            removeClient(info,efd);
+            return;
         }
         info->size += val;
     }
     if (save == 0 && info->size > 0) {
         epoll_event ev;
         ev.events = info->neighbor->flags | EPOLLOUT;
-info->neighbor->flags = ev.events;
+        info->neighbor->flags = ev.events;
         ev.data.ptr = info->neighbor;
         if (epoll_ctl(efd,EPOLL_CTL_MOD,info->neighbor->fd,&ev) < 0) {
             removeClient(info,efd);
@@ -246,7 +253,7 @@ info->neighbor->flags = ev.events;
     }
     if (save < BUFF_SIZE && info->size == BUFF_SIZE) {
         epoll_event ev;
-int tmp  = ~EPOLLIN;
+        int tmp  = ~EPOLLIN;
         info->flags = ev.events = info->flags & tmp;
         ev.data.ptr = info;
         if (epoll_ctl(efd,EPOLL_CTL_MOD,info->fd,&ev) < 0) {
@@ -255,11 +262,7 @@ int tmp  = ~EPOLLIN;
     }
 }
 
-void printLog(int data) {
-	FILE* f = fopen("/home/ouroboros/rshdlogs.txt","a");
-	fprintf(f,"%d\n",data);
-	fclose(f);
-}
+
 
 int main(int argc, char** args) {
 
@@ -323,7 +326,7 @@ int main(int argc, char** args) {
 
     int count;
 
-
+    printLog("RSHD has started");
     while (true) { // main loop
         if ((count = epoll_wait(efd,eList,pidMap.size() + 1,-1)) < 0) {
             if (errno == EINTR) {
@@ -332,10 +335,14 @@ int main(int argc, char** args) {
             killThemAll();
             _exit(EXIT_FAILURE);
         }
-	printLog(count);
+
 
         for (int i = 0; i < count; ++i) {
             epoll_event *curr = &eList[i];
+
+            if (((dInfo*)curr->data.ptr)->fd != lfd && pidMap.find(((dInfo*)curr->data.ptr)->fd) == pidMap.end()) {
+                continue;
+            }
 
             if (curr->events&EPOLLIN) {
 
@@ -356,6 +363,8 @@ int main(int argc, char** args) {
                             killThemAll();
                             _exit(EXIT_FAILURE);
                         }
+
+                        printLog("Get new connect");
 
                         if (fcntl(nfd,F_SETFL,O_NONBLOCK) < 0) {
                             close(nfd);
@@ -382,18 +391,24 @@ int main(int argc, char** args) {
                             killThemAll();
                             _exit(EXIT_FAILURE);
                         }
+
+                        printLog("Get peer with fd:" + std::to_string(nfd) + " and terminal with fd:" + std::to_string(fd));
                     }
                 } else {
                     readAll((dInfo*)(curr->data.ptr),efd);
                 }
+                continue;
 
             }
             if (curr->events&EPOLLOUT) {
                 writeAll((dInfo*)(curr->data.ptr),efd);
+                continue;
             }
             if (curr->events&EPOLLERR || curr->events&EPOLLHUP) {
                 removeClient((dInfo*)curr->data.ptr,efd);
+                continue;
             }
         }
     }
+    printLog("shut down");
 }
