@@ -12,6 +12,7 @@
 #include <signal.h>
 #include <string>
 #include <string.h>
+#include <sstream>
 
 #define MAX_SERV 100
 #define BUFF_SIZE 4096
@@ -197,7 +198,7 @@ void writeAll(dInfo* info,int efd) {
     int save = neighbor->size;
     while(total != neighbor->size) {
         if ((val = write(info->fd,neighbor->buf + total,neighbor->size - total)) <= 0) {
-            if (errno == EWOULDBLOCK || errno == EAGAIN) {
+            if (val != 0 && (errno == EWOULDBLOCK || errno == EAGAIN)) {
                 break;
             }
             //disconnect
@@ -233,13 +234,15 @@ void readAll(dInfo* info, int efd) {
     int val, save = info->size;
     while (info->size < BUFF_SIZE) {
         if ((val = read(info->fd,info->buf + info->size,BUFF_SIZE - info->size)) <= 0){
-            if (errno == EWOULDBLOCK || errno == EAGAIN) {
+            if (val != 0 && (errno == EWOULDBLOCK || errno == EAGAIN)) {
+                printLog("Error but continue");
                 break;
             }
             //disconnect
             removeClient(info,efd);
             return;
         }
+        printLog(std::to_string(val));
         info->size += val;
     }
     if (save == 0 && info->size > 0) {
@@ -395,6 +398,10 @@ int main(int argc, char** args) {
                         printLog("Get peer with fd:" + std::to_string(nfd) + " and terminal with fd:" + std::to_string(fd));
                     }
                 } else {
+
+                    stringstream tmp;
+                    tmp << "read from " << ((dInfo*)(curr->data.ptr))->fd << " and lfd ==" << lfd;
+                    printLog(tmp.str());
                     readAll((dInfo*)(curr->data.ptr),efd);
                 }
                 continue;
